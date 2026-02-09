@@ -1,0 +1,32 @@
+
+# local docs (phase notes/specs)
+docs/
+# Go
+bin/
+dist/
+*.exe
+*.test
+*.out
+*.prof
+*.pprof
+coverage*
+.cache/
+.tmp/
+tmp/
+.DS_Store
+# IDE
+.idea/
+.vscode/
+*.iml
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*secret*
+*token*
+secrets/
+vault/
+# Logs
+*.log
