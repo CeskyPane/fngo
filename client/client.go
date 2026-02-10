@@ -9,6 +9,7 @@ import (
 	"github.com/ceskypane/fngo/auth"
 	"github.com/ceskypane/fngo/auth/epic"
 	"github.com/ceskypane/fngo/events"
+	"github.com/ceskypane/fngo/friends"
 	"github.com/ceskypane/fngo/logging"
 	"github.com/ceskypane/fngo/matchmaking"
 	"github.com/ceskypane/fngo/party"
@@ -35,6 +36,11 @@ type Client struct {
 	partyState    *party.State
 	partyCommands *party.Commands
 	partyDecoder  *party.XMPPDecoder
+
+	friendsCommands *friends.Commands
+	friendsDecoder  *friends.XMPPDecoder
+
+	selfAccountID string
 
 	runMu      sync.Mutex
 	runCancel  context.CancelFunc
@@ -68,14 +74,15 @@ func NewClient(cfg Config) (*Client, error) {
 	state := party.NewState()
 
 	c := &Client{
-		cfg:          cfg,
-		log:          log,
-		bus:          bus,
-		sub:          sub,
-		tokenStore:   tokenStore,
-		deviceStore:  cfg.DeviceAuthStore,
-		partyState:   state,
-		partyDecoder: party.NewXMPPDecoder(bus, state),
+		cfg:            cfg,
+		log:            log,
+		bus:            bus,
+		sub:            sub,
+		tokenStore:     tokenStore,
+		deviceStore:    cfg.DeviceAuthStore,
+		partyState:     state,
+		partyDecoder:   party.NewXMPPDecoder(bus, state),
+		friendsDecoder: friends.NewXMPPDecoder(bus),
 	}
 
 	if cfg.OAuth.ClientID != "" || cfg.OAuth.ClientSecret != "" {
@@ -99,6 +106,7 @@ func NewClient(cfg Config) (*Client, error) {
 
 	c.httpClient = transporthttp.NewClient(cfg.HTTPClient, c.tokenProvider, cfg.HTTP)
 	c.partyCommands = party.NewCommands(state, c.httpClient, cfg.Party)
+	c.friendsCommands = friends.NewCommands(c.httpClient, cfg.Friends)
 
 	if c.oauthClient != nil {
 		refreshCfg := auth.SchedulerConfig{
@@ -173,8 +181,8 @@ func (c *Client) Login(ctx context.Context) error {
 			xmppCfg.Domain = "prod.ol.epicgames.com"
 		}
 
-		dispatchers := make([]xmpp.StanzaDispatcher, 0, 4)
-		dispatchers = append(dispatchers, c.partyDecoder)
+		dispatchers := make([]xmpp.StanzaDispatcher, 0, 6)
+		dispatchers = append(dispatchers, c.friendsDecoder, c.partyDecoder)
 		if xmppCfg.StanzaDispatcher != nil {
 			dispatchers = append(dispatchers, xmppCfg.StanzaDispatcher)
 		}
@@ -231,6 +239,9 @@ func (c *Client) loginWithDeviceAuth(ctx context.Context) error {
 	}
 
 	c.partyCommands.SetIdentity(accountID, displayName)
+	c.friendsCommands.SetIdentity(accountID)
+	c.friendsDecoder.SetIdentity(accountID)
+	c.selfAccountID = accountID
 	return nil
 }
 
@@ -283,6 +294,14 @@ func (c *Client) Events() <-chan events.Event {
 	}
 
 	return c.sub.C
+}
+
+func (c *Client) Subscribe(buffer int) (*events.Subscription, error) {
+	return c.bus.Subscribe(buffer)
+}
+
+func (c *Client) SelfAccountID() string {
+	return c.selfAccountID
 }
 
 func (c *Client) WaitFor(ctx context.Context, pred events.Predicate) (events.Event, error) {
@@ -347,6 +366,31 @@ func (c *Client) PromoteMember(ctx context.Context, accountID string) error {
 			CaptainID: updated.CaptainID,
 			Revision:  updated.Revision,
 		})
+	}
+
+	c.emitPartyUpdated()
+	return nil
+}
+
+func (c *Client) AddFriend(ctx context.Context, accountID string) error {
+	return c.friendsCommands.AddFriend(ctx, accountID)
+}
+
+func (c *Client) RemoveFriend(ctx context.Context, accountID string) error {
+	return c.friendsCommands.RemoveFriend(ctx, accountID)
+}
+
+func (c *Client) SendJoinRequestToMember(ctx context.Context, accountID string) error {
+	return c.partyCommands.SendJoinRequestToMember(ctx, accountID)
+}
+
+func (c *Client) JoinPartyInviteFrom(ctx context.Context, accountID string) (string, error) {
+	return c.partyCommands.JoinPartyInviteFrom(ctx, accountID)
+}
+
+func (c *Client) ResyncParty(ctx context.Context) error {
+	if err := c.partyCommands.SyncCurrentParty(ctx); err != nil {
+		return err
 	}
 
 	c.emitPartyUpdated()

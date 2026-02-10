@@ -13,10 +13,19 @@ type BotClient interface {
 	Login(ctx context.Context) error
 	Logout(ctx context.Context) error
 
+	SelfAccountID() string
+	Subscribe(buffer int) (*events.Subscription, error)
+
+	AddFriend(ctx context.Context, accountID string) error
+	RemoveFriend(ctx context.Context, accountID string) error
+
 	EnsureParty(ctx context.Context) error
 	JoinParty(ctx context.Context, id string) error
 	JoinPartyByMemberID(ctx context.Context, memberAccountID string) error
+	JoinPartyInviteFrom(ctx context.Context, accountID string) (string, error)
+	SendJoinRequestToMember(ctx context.Context, accountID string) error
 	LeaveParty(ctx context.Context) error
+	ResyncParty(ctx context.Context) error
 	PromoteMember(ctx context.Context, accountID string) error
 	SetReady(ctx context.Context, state party.ReadyState) error
 	SetPlaylist(ctx context.Context, req matchmaking.PlaylistRequest) error

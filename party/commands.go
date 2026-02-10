@@ -24,6 +24,7 @@ var (
 	ErrMemberNotFound = errors.New("party: member not found")
 	ErrNotCaptain     = errors.New("party: client is not captain")
 	ErrPatchConflict  = errors.New("party: patch conflict after retries")
+	ErrInviteNotFound = errors.New("party: invite not found")
 )
 
 type APIError struct {
@@ -313,7 +314,7 @@ func (c *Commands) JoinPartyByMemberID(ctx context.Context, memberAccountID stri
 		return err
 	}
 
-	memberAccountID = strings.TrimSpace(memberAccountID)
+	memberAccountID = trimSpace(memberAccountID)
 	if memberAccountID == "" {
 		return fmt.Errorf("party: member account id is required")
 	}
@@ -328,6 +329,75 @@ func (c *Commands) JoinPartyByMemberID(ctx context.Context, memberAccountID stri
 	}
 
 	return c.joinPartyLocked(ctx, party.ID)
+}
+
+func (c *Commands) SendJoinRequestToMember(ctx context.Context, memberAccountID string) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+
+	if err := c.validateConfig(); err != nil {
+		return err
+	}
+
+	memberAccountID = trimSpace(memberAccountID)
+	if memberAccountID == "" {
+		return fmt.Errorf("party: member account id is required")
+	}
+
+	payload := map[string]any{
+		"urn:epic:invite:platformdata_s": "",
+	}
+
+	resp, err := c.requestJSON(ctx, http.MethodPost, fmt.Sprintf("/members/%s/intentions/%s", memberAccountID, c.cfg.AccountID), payload)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode >= 300 {
+		return decodeAPIError(resp)
+	}
+
+	return nil
+}
+
+func (c *Commands) JoinPartyInviteFrom(ctx context.Context, pingerAccountID string) (string, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+
+	if err := c.validateConfig(); err != nil {
+		return "", err
+	}
+
+	pingerAccountID = trimSpace(pingerAccountID)
+	if pingerAccountID == "" {
+		return "", fmt.Errorf("party: pinger account id is required")
+	}
+
+	resp, err := c.requestNoBody(ctx, http.MethodGet, fmt.Sprintf("/user/%s/pings/%s/parties", c.cfg.AccountID, pingerAccountID))
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode >= 300 {
+		return "", decodeAPIError(resp)
+	}
+
+	var payload []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(resp.Body, &payload); err != nil {
+		return "", err
+	}
+
+	if len(payload) == 0 || trimSpace(payload[0].ID) == "" {
+		return "", ErrInviteNotFound
+	}
+
+	partyID := trimSpace(payload[0].ID)
+	if err := c.joinPartyLocked(ctx, partyID); err != nil {
+		return "", err
+	}
+	return partyID, nil
 }
 
 func (c *Commands) LeaveParty(ctx context.Context) error {
@@ -975,4 +1045,34 @@ func parseRevisionFromStale(resp transporthttp.Response) int64 {
 	}
 
 	return revision
+}
+
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end {
+		switch s[start] {
+		case ' ', '\t', '\n', '\r':
+			start++
+			continue
+		default:
+		}
+		break
+	}
+
+	for end > start {
+		switch s[end-1] {
+		case ' ', '\t', '\n', '\r':
+			end--
+			continue
+		default:
+		}
+		break
+	}
+
+	if start == 0 && end == len(s) {
+		return s
+	}
+
+	return s[start:end]
 }

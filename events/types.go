@@ -33,6 +33,11 @@ const (
 	EventPartyInviteReceived      Name = "party.invite_received"
 	EventPartyJoinRequestReceived Name = "party.join_request_received"
 	EventPartyRawNotification     Name = "party.raw_notification"
+
+	EventFriendRequestReceived Name = "friend.request_received"
+	EventFriendAdded           Name = "friend.added"
+	EventFriendRemoved         Name = "friend.removed"
+	EventFriendRequestDeclined Name = "friend.request_declined"
 )
 
 type Event interface {
@@ -259,6 +264,43 @@ type PartyMemberKicked struct {
 	MemberID string
 	ActorID  string
 	Revision int64
+}
+
+type FriendRequestReceived struct {
+	Base
+	AccountID string
+}
+
+func (e FriendRequestReceived) Name() Name {
+	return EventFriendRequestReceived
+}
+
+type FriendAdded struct {
+	Base
+	AccountID string
+}
+
+func (e FriendAdded) Name() Name {
+	return EventFriendAdded
+}
+
+type FriendRemoved struct {
+	Base
+	AccountID string
+	Reason    string
+}
+
+func (e FriendRemoved) Name() Name {
+	return EventFriendRemoved
+}
+
+type FriendRequestDeclined struct {
+	Base
+	AccountID string
+}
+
+func (e FriendRequestDeclined) Name() Name {
+	return EventFriendRequestDeclined
 }
 
 func (e PartyMemberKicked) Name() Name {

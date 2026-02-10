@@ -92,6 +92,66 @@ func PartyCaptainIs(partyID, captainID string) Predicate {
 	}
 }
 
+func FriendRequestFrom(accountID string) Predicate {
+	return func(evt Event) bool {
+		req, ok := evt.(FriendRequestReceived)
+		if !ok {
+			return false
+		}
+
+		if accountID == "" {
+			return true
+		}
+
+		return req.AccountID == accountID
+	}
+}
+
+func FriendAddedFor(accountID string) Predicate {
+	return func(evt Event) bool {
+		added, ok := evt.(FriendAdded)
+		if !ok {
+			return false
+		}
+
+		if accountID == "" {
+			return true
+		}
+
+		return added.AccountID == accountID
+	}
+}
+
+func FriendRemovedFor(accountID string) Predicate {
+	return func(evt Event) bool {
+		removed, ok := evt.(FriendRemoved)
+		if !ok {
+			return false
+		}
+
+		if accountID == "" {
+			return true
+		}
+
+		return removed.AccountID == accountID
+	}
+}
+
+func FriendDeclinedFor(accountID string) Predicate {
+	return func(evt Event) bool {
+		declined, ok := evt.(FriendRequestDeclined)
+		if !ok {
+			return false
+		}
+
+		if accountID == "" {
+			return true
+		}
+
+		return declined.AccountID == accountID
+	}
+}
+
 func Any(predicates ...Predicate) Predicate {
 	return func(evt Event) bool {
 		for _, predicate := range predicates {

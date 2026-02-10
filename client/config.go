@@ -5,6 +5,7 @@ import (
 
 	"github.com/ceskypane/fngo/auth"
 	"github.com/ceskypane/fngo/auth/epic"
+	"github.com/ceskypane/fngo/friends"
 	"github.com/ceskypane/fngo/logging"
 	"github.com/ceskypane/fngo/party"
 	transporthttp "github.com/ceskypane/fngo/transport/http"
@@ -27,6 +28,8 @@ type Config struct {
 	HTTP       transporthttp.Config
 
 	Party party.Config
+
+	Friends friends.Config
 
 	EnableXMPP           bool
 	XMPP                 xmpp.Config
