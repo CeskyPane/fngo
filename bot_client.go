@@ -26,6 +26,8 @@ type BotClient interface {
 	ClearEmote(ctx context.Context) error
 	SetLoadout(ctx context.Context, loadout party.Loadout) error
 
+	PartySnapshot() *party.Party
+
 	Events() <-chan events.Event
 	WaitFor(ctx context.Context, predicate events.Predicate) (events.Event, error)
 }

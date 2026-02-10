@@ -289,6 +289,10 @@ func (c *Client) WaitFor(ctx context.Context, pred events.Predicate) (events.Eve
 	return c.bus.WaitFor(ctx, pred)
 }
 
+func (c *Client) PartySnapshot() *party.Party {
+	return c.partyState.Snapshot()
+}
+
 func (c *Client) EnsureParty(ctx context.Context) error {
 	if _, err := c.partyCommands.EnsureParty(ctx); err != nil {
 		return err
