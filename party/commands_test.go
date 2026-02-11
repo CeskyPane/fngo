@@ -272,6 +272,39 @@ func TestJoinPartyByMemberIDResolvesParty(t *testing.T) {
 	}
 }
 
+func TestJoinPartyByMemberIDSelfOnlyQueryReturnsNotFound(t *testing.T) {
+	joinCalled := false
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/user/friend1") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"errorCode":"errors.com.epicgames.social.party.user_operation_forbidden","errorMessage":"Target accountId [friend1] does not match the authenticated user [acc1]."}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/join") {
+			joinCalled = true
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	httpClient := transporthttp.NewClient(srv.Client(), nil, transporthttp.Config{MaxRetries: 0})
+	state := NewState()
+	cmd := NewCommands(state, httpClient, Config{BaseURL: srv.URL, AccountID: "acc1", DisplayName: "Bot"})
+
+	err := cmd.JoinPartyByMemberID(context.Background(), "friend1")
+	if !errors.Is(err, ErrPartyNotFound) {
+		t.Fatalf("expected ErrPartyNotFound, got %v", err)
+	}
+
+	if joinCalled {
+		t.Fatalf("did not expect join endpoint call")
+	}
+}
+
 func TestSetReadyRetriesMemberStaleRevision(t *testing.T) {
 	var mu sync.Mutex
 	memberPatchCalls := 0

@@ -330,6 +330,10 @@ func (c *Commands) JoinPartyByMemberID(ctx context.Context, memberAccountID stri
 
 	party, err := c.getCurrentPartyForAccount(ctx, memberAccountID)
 	if err != nil {
+		if isSelfOnlyUserQueryForbidden(err) {
+			return ErrPartyNotFound
+		}
+
 		return err
 	}
 
@@ -838,6 +842,33 @@ func isUserHasParty(resp transporthttp.Response) bool {
 	}
 
 	return payload.ErrorCode == "errors.com.epicgames.social.party.user_has_party"
+}
+
+func isSelfOnlyUserQueryForbidden(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	apiErr, ok := err.(*APIError)
+	if !ok || apiErr == nil {
+		return false
+	}
+
+	if apiErr.StatusCode != http.StatusForbidden {
+		return false
+	}
+
+	code := strings.ToLower(trimSpace(apiErr.Code))
+	if !strings.Contains(code, "user_operation_forbidden") {
+		return false
+	}
+
+	msg := strings.ToLower(trimSpace(apiErr.Message))
+	if strings.Contains(msg, "target accountid") && strings.Contains(msg, "does not match the authenticated user") {
+		return true
+	}
+
+	return false
 }
 
 func mapPromoteError(resp transporthttp.Response) error {
