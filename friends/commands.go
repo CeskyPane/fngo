@@ -46,6 +46,18 @@ type Commands struct {
 	log logging.Logger
 }
 
+type summaryEntry struct {
+	AccountID   string `json:"accountId"`
+	DisplayName string `json:"displayName"`
+	Created     string `json:"created"`
+}
+
+type summaryResponse struct {
+	Friends  []summaryEntry `json:"friends"`
+	Incoming []summaryEntry `json:"incoming"`
+	Outgoing []summaryEntry `json:"outgoing"`
+}
+
 func NewCommands(httpClient HTTPClient, cfg Config) *Commands {
 	defaults := DefaultConfig()
 	if cfg.BaseURL == "" {
@@ -112,6 +124,153 @@ func (c *Commands) RemoveFriend(ctx context.Context, targetAccountID string) err
 
 	if resp.StatusCode >= 300 {
 		return decodeAPIError(resp)
+	}
+
+	return nil
+}
+
+// ListFriends returns the friend list from Epic summary endpoint.
+// Endpoint (fnbr.js mapping): GET /friends/api/v1/{selfAccountId}/summary
+func (c *Commands) ListFriends(ctx context.Context) ([]Friend, error) {
+	summary, err := c.fetchSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]Friend, 0, len(summary.Friends))
+	for _, item := range summary.Friends {
+		out = append(out, Friend{
+			AccountID:   trimSpace(item.AccountID),
+			DisplayName: trimSpace(item.DisplayName),
+			CreatedAt:   parseCreatedAt(item.Created),
+		})
+	}
+	return out, nil
+}
+
+// ListIncomingFriendRequests returns incoming pending friend requests from summary endpoint.
+// Endpoint (fnbr.js mapping): GET /friends/api/v1/{selfAccountId}/summary
+func (c *Commands) ListIncomingFriendRequests(ctx context.Context) ([]FriendRequest, error) {
+	summary, err := c.fetchSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]FriendRequest, 0, len(summary.Incoming))
+	for _, item := range summary.Incoming {
+		out = append(out, FriendRequest{
+			AccountID:   trimSpace(item.AccountID),
+			DisplayName: trimSpace(item.DisplayName),
+			CreatedAt:   parseCreatedAt(item.Created),
+		})
+	}
+	return out, nil
+}
+
+// ListOutgoingFriendRequests returns outgoing pending friend requests from summary endpoint.
+// Endpoint (fnbr.js mapping): GET /friends/api/v1/{selfAccountId}/summary
+func (c *Commands) ListOutgoingFriendRequests(ctx context.Context) ([]FriendRequest, error) {
+	summary, err := c.fetchSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]FriendRequest, 0, len(summary.Outgoing))
+	for _, item := range summary.Outgoing {
+		out = append(out, FriendRequest{
+			AccountID:   trimSpace(item.AccountID),
+			DisplayName: trimSpace(item.DisplayName),
+			CreatedAt:   parseCreatedAt(item.Created),
+		})
+	}
+	return out, nil
+}
+
+// CancelOutgoingFriendRequest aborts a previously sent request.
+// Endpoint (fnbr.js mapping): DELETE /friends/api/v1/{selfAccountId}/friends/{targetAccountId}
+func (c *Commands) CancelOutgoingFriendRequest(ctx context.Context, accountID string) error {
+	return c.RemoveFriend(ctx, accountID)
+}
+
+// DeclineIncomingFriendRequest declines an incoming request.
+// Endpoint (fnbr.js mapping): DELETE /friends/api/v1/{selfAccountId}/friends/{targetAccountId}
+func (c *Commands) DeclineIncomingFriendRequest(ctx context.Context, accountID string) error {
+	return c.RemoveFriend(ctx, accountID)
+}
+
+// RemoveAllFriends removes all currently listed friends using list->delete flow.
+func (c *Commands) RemoveAllFriends(ctx context.Context) (BulkRemoveResult, error) {
+	result := BulkRemoveResult{}
+
+	friendsList, err := c.ListFriends(ctx)
+	if err != nil {
+		return result, err
+	}
+
+	for _, friend := range friendsList {
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+
+		accountID := trimSpace(friend.AccountID)
+		if accountID == "" {
+			continue
+		}
+
+		result.Attempted++
+		if removeErr := c.RemoveFriend(ctx, accountID); removeErr != nil {
+			result.Failed = append(result.Failed, BulkOperationError{AccountID: accountID, Err: removeErr})
+			continue
+		}
+		result.Removed++
+	}
+
+	return result, nil
+}
+
+func (c *Commands) fetchSummary(ctx context.Context) (summaryResponse, error) {
+	if err := c.validateConfig(); err != nil {
+		return summaryResponse{}, err
+	}
+
+	resp, err := c.requestNoBody(ctx, http.MethodGet, fmt.Sprintf("/friends/api/v1/%s/summary", c.cfg.AccountID))
+	if err != nil {
+		return summaryResponse{}, err
+	}
+
+	if resp.StatusCode >= 300 {
+		return summaryResponse{}, decodeAPIError(resp)
+	}
+
+	var payload summaryResponse
+	if len(resp.Body) == 0 {
+		return payload, nil
+	}
+	if err := json.Unmarshal(resp.Body, &payload); err != nil {
+		return summaryResponse{}, fmt.Errorf("friends: decode summary: %w", err)
+	}
+	return payload, nil
+}
+
+func parseCreatedAt(raw string) *time.Time {
+	raw = trimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02T15:04:05.000-0700",
+	}
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, raw)
+		if err != nil {
+			continue
+		}
+		t := parsed.UTC()
+		return &t
 	}
 
 	return nil

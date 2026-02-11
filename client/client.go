@@ -436,6 +436,30 @@ func (c *Client) RemoveFriend(ctx context.Context, accountID string) error {
 	return c.friendsCommands.RemoveFriend(ctx, accountID)
 }
 
+func (c *Client) ListFriends(ctx context.Context) ([]friends.Friend, error) {
+	return c.friendsCommands.ListFriends(ctx)
+}
+
+func (c *Client) ListIncomingFriendRequests(ctx context.Context) ([]friends.FriendRequest, error) {
+	return c.friendsCommands.ListIncomingFriendRequests(ctx)
+}
+
+func (c *Client) ListOutgoingFriendRequests(ctx context.Context) ([]friends.FriendRequest, error) {
+	return c.friendsCommands.ListOutgoingFriendRequests(ctx)
+}
+
+func (c *Client) CancelOutgoingFriendRequest(ctx context.Context, accountID string) error {
+	return c.friendsCommands.CancelOutgoingFriendRequest(ctx, accountID)
+}
+
+func (c *Client) DeclineIncomingFriendRequest(ctx context.Context, accountID string) error {
+	return c.friendsCommands.DeclineIncomingFriendRequest(ctx, accountID)
+}
+
+func (c *Client) RemoveAllFriends(ctx context.Context) (friends.BulkRemoveResult, error) {
+	return c.friendsCommands.RemoveAllFriends(ctx)
+}
+
 func (c *Client) SendJoinRequestToMember(ctx context.Context, accountID string) error {
 	return c.partyCommands.SendJoinRequestToMember(ctx, accountID)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ceskypane/fngo/events"
+	"github.com/ceskypane/fngo/friends"
 	"github.com/ceskypane/fngo/matchmaking"
 	"github.com/ceskypane/fngo/party"
 )
@@ -18,6 +19,12 @@ type BotClient interface {
 
 	AddFriend(ctx context.Context, accountID string) error
 	RemoveFriend(ctx context.Context, accountID string) error
+	ListFriends(ctx context.Context) ([]friends.Friend, error)
+	ListIncomingFriendRequests(ctx context.Context) ([]friends.FriendRequest, error)
+	ListOutgoingFriendRequests(ctx context.Context) ([]friends.FriendRequest, error)
+	CancelOutgoingFriendRequest(ctx context.Context, accountID string) error
+	DeclineIncomingFriendRequest(ctx context.Context, accountID string) error
+	RemoveAllFriends(ctx context.Context) (friends.BulkRemoveResult, error)
 
 	EnsureParty(ctx context.Context) error
 	JoinParty(ctx context.Context, id string) error
