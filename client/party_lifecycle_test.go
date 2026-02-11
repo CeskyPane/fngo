@@ -75,10 +75,11 @@ func TestClientReconnectTriggersSinglePartyResync(t *testing.T) {
 
 	endpoint := "ws" + strings.TrimPrefix(xmppSrv.URL, "http")
 	client, err := NewClient(Config{
-		EventBuffer: 128,
-		TokenStore:  tokenStore,
-		HTTPClient:  partySrv.Client(),
-		HTTP:        transporthttp.Config{MaxRetries: 0},
+		EventBuffer:         128,
+		TokenStore:          tokenStore,
+		HTTPClient:          partySrv.Client(),
+		HTTP:                transporthttp.Config{MaxRetries: 0},
+		DisableFortniteInit: true,
 		Party: party.Config{
 			BaseURL:                     partySrv.URL,
 			AccountID:                   "acc1",

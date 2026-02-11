@@ -25,6 +25,10 @@ func (c *Client) initFortnite(ctx context.Context) error {
 		return nil
 	}
 
+	if c.cfg.DisableFortniteInit {
+		return nil
+	}
+
 	accountID := strings.TrimSpace(c.selfAccountID)
 	if accountID == "" && c.tokenStore != nil {
 		if tokens, ok, err := c.tokenStore.Load(ctx); err == nil && ok {
@@ -105,6 +109,12 @@ func (c *Client) grantAccess(ctx context.Context, accountID string) error {
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+
+	// Epic started returning 404 for the legacy grant_access endpoint. fnbr.js treats this
+	// call as best-effort; keep login working by ignoring not_found.
+	if resp.StatusCode == 404 {
 		return nil
 	}
 

@@ -215,10 +215,11 @@ func TestOfflineFlowLoginEnsureJoinPlaylistReady(t *testing.T) {
 
 	endpoint := "ws" + strings.TrimPrefix(xmppSrv.URL, "http")
 	client, err := clientpkg.NewClient(clientpkg.Config{
-		EventBuffer: 256,
-		DeviceAuth:  authDevice("acc1"),
-		OAuth:       epicOAuth(oauthSrv.URL+"/oauth/token", oauthSrv.Client()),
-		HTTPClient:  partySrv.Client(),
+		EventBuffer:         256,
+		DeviceAuth:          authDevice("acc1"),
+		OAuth:               epicOAuth(oauthSrv.URL+"/oauth/token", oauthSrv.Client()),
+		HTTPClient:          partySrv.Client(),
+		DisableFortniteInit: true,
 		Party: party.Config{
 			BaseURL:                     partySrv.URL + "/party/api/v1/Fortnite",
 			AccountID:                   "acc1",

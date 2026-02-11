@@ -27,6 +27,10 @@ type Config struct {
 	HTTPClient *http.Client
 	HTTP       transporthttp.Config
 
+	// DisableFortniteInit disables the best-effort EULA/grant_access calls during Login.
+	// It is primarily intended for offline/unit tests.
+	DisableFortniteInit bool
+
 	Party party.Config
 
 	Friends friends.Config
