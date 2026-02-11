@@ -152,12 +152,12 @@ func (c *Client) Login(ctx context.Context) error {
 		return err
 	}
 
-	if c.authScheduler != nil {
-		go c.authScheduler.Run(runCtx)
+	if err := c.initFortnite(runCtx); err != nil {
+		return err
 	}
 
-	if _, err := c.partyCommands.EnsureParty(runCtx); err != nil {
-		return err
+	if c.authScheduler != nil {
+		go c.authScheduler.Run(runCtx)
 	}
 
 	if c.cfg.EnableXMPP {
@@ -181,6 +181,11 @@ func (c *Client) Login(ctx context.Context) error {
 			xmppCfg.Domain = "prod.ol.epicgames.com"
 		}
 
+		// Default resource used by xmpp.NewClient; set explicitly so we can derive connection id for party-service.
+		if xmppCfg.Resource == "" {
+			xmppCfg.Resource = "V2:Fortnite:WIN::FNGO"
+		}
+
 		dispatchers := make([]xmpp.StanzaDispatcher, 0, 6)
 		dispatchers = append(dispatchers, c.friendsDecoder, c.partyDecoder)
 		if xmppCfg.StanzaDispatcher != nil {
@@ -199,9 +204,60 @@ func (c *Client) Login(ctx context.Context) error {
 			return err
 		}
 
+		sub, err := c.bus.Subscribe(64)
+		if err != nil {
+			return err
+		}
+		defer sub.Cancel()
+
 		if err := c.xmppClient.Connect(runCtx); err != nil {
 			return err
 		}
+
+		// Wait until XMPP handshake completes (xmpp.Client.Connect returns immediately after starting
+		// the supervisor goroutine). Party-service operations can fail with "user_is_offline" until
+		// the XMPP session is established.
+		var lastXMPPErr error
+		for {
+			select {
+			case <-runCtx.Done():
+				if lastXMPPErr != nil {
+					return fmt.Errorf("xmpp connect timeout: %w", lastXMPPErr)
+				}
+				return runCtx.Err()
+			case evt, ok := <-sub.C:
+				if !ok {
+					if lastXMPPErr != nil {
+						return fmt.Errorf("xmpp connect aborted: %w", lastXMPPErr)
+					}
+					return fmt.Errorf("xmpp connect aborted")
+				}
+
+				switch e := evt.(type) {
+				case events.XMPPConnected:
+					// Party-service uses connection.id to validate the session; it must include the XMPP resource.
+					if xmppCfg.JID != "" && xmppCfg.Resource != "" {
+						c.partyCommands.SetConnectionID(xmppCfg.JID + "/" + xmppCfg.Resource)
+					}
+					goto xmppReady
+				case events.XMPPError:
+					if e.Err != nil {
+						lastXMPPErr = e.Err
+					}
+					if e.Fatal && e.Err != nil {
+						return e.Err
+					}
+				}
+			}
+		}
+	}
+
+xmppReady:
+
+	// Match old JS behavior (fnbr.js): connect XMPP first, then init/ensure party.
+	// Some party-service operations fail with "user_is_offline" until XMPP session is established.
+	if _, err := c.partyCommands.EnsureParty(runCtx); err != nil {
+		return err
 	}
 
 	c.emitPartyUpdated()

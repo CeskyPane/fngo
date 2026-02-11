@@ -112,6 +112,15 @@ func (c *Commands) SetIdentity(accountID, displayName string) {
 	}
 }
 
+func (c *Commands) SetConnectionID(connectionID string) {
+	connectionID = strings.TrimSpace(connectionID)
+	if connectionID == "" {
+		return
+	}
+
+	c.cfg.ConnectionID = connectionID
+}
+
 func (c *Commands) SyncCurrentParty(ctx context.Context) error {
 	c.opMu.Lock()
 	defer c.opMu.Unlock()

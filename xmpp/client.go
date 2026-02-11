@@ -232,6 +232,13 @@ func (c *Client) connectAndRun(ctx context.Context) error {
 			_ = conn.Close()
 			return err
 		}
+
+		// Send initial presence to mark the session as online/available.
+		// Without this, party-service operations may fail with "user_is_offline".
+		if err := c.writeHandshakeFrame(conn, "<presence/>"); err != nil {
+			_ = conn.Close()
+			return err
+		}
 	}
 
 	c.setConn(conn)
