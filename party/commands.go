@@ -311,6 +311,7 @@ func (c *Commands) joinPartyLocked(ctx context.Context, id string) error {
 		return err
 	}
 
+	party = c.hydrateJoinedPartySelfMember(ctx, id, party)
 	c.state.Replace(*party)
 	return nil
 }
@@ -581,6 +582,13 @@ func (c *Commands) applyIntentWithRetry(ctx context.Context, intent PatchIntent)
 
 		member, ok := snapshot.Members[c.cfg.AccountID]
 		if !ok {
+			snapshot = c.hydratePartyStateForSelfMember(ctx, snapshot)
+			if snapshot != nil {
+				member, ok = snapshot.Members[c.cfg.AccountID]
+			}
+		}
+
+		if !ok {
 			return ErrPartyNotFound
 		}
 
@@ -651,6 +659,59 @@ func (c *Commands) applyIntentWithRetry(ctx context.Context, intent PatchIntent)
 	}
 
 	return ErrPatchConflict
+}
+
+func (c *Commands) hydrateJoinedPartySelfMember(ctx context.Context, partyID string, party *Party) *Party {
+	if party == nil {
+		return party
+	}
+
+	if _, ok := party.Members[c.cfg.AccountID]; ok {
+		return party
+	}
+
+	currentParty, err := c.getCurrentPartyForAccount(ctx, c.cfg.AccountID)
+	if err != nil {
+		c.log.Debug("party join self-member hydrate failed", logging.F("party_id", partyID), logging.F("err", err.Error()))
+		return party
+	}
+
+	if currentParty == nil || trimSpace(currentParty.ID) != trimSpace(partyID) {
+		return party
+	}
+
+	if _, ok := currentParty.Members[c.cfg.AccountID]; !ok {
+		return party
+	}
+
+	return currentParty
+}
+
+func (c *Commands) hydratePartyStateForSelfMember(ctx context.Context, snapshot *Party) *Party {
+	if snapshot == nil || trimSpace(snapshot.ID) == "" {
+		return snapshot
+	}
+
+	if _, ok := snapshot.Members[c.cfg.AccountID]; ok {
+		return snapshot
+	}
+
+	currentParty, err := c.getCurrentPartyForAccount(ctx, c.cfg.AccountID)
+	if err != nil {
+		c.log.Debug("party patch self-member hydrate failed", logging.F("party_id", snapshot.ID), logging.F("err", err.Error()))
+		return snapshot
+	}
+
+	if currentParty == nil || trimSpace(currentParty.ID) != trimSpace(snapshot.ID) {
+		return snapshot
+	}
+
+	if _, ok := currentParty.Members[c.cfg.AccountID]; !ok {
+		return snapshot
+	}
+
+	c.state.Replace(*currentParty)
+	return currentParty
 }
 
 func (c *Commands) sendPartyPatch(ctx context.Context, partyID string, revision int64, updates map[string]any) (transporthttp.Response, error) {

@@ -272,6 +272,66 @@ func TestJoinPartyByMemberIDResolvesParty(t *testing.T) {
 	}
 }
 
+func TestJoinPartyByMemberIDHydratesSelfMemberFromCurrentParty(t *testing.T) {
+	var joinedPath string
+	selfCurrentCalls := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/user/friend1") && r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"current":[` + partyJSONFriendOnly("p9", 4, "friend1") + `]}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/parties/p9/members/acc1/join") && r.Method == http.MethodPost {
+			joinedPath = r.URL.Path
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/parties/p9") && r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(partyJSONFriendOnly("p9", 5, "friend1")))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/user/acc1") && r.Method == http.MethodGet {
+			selfCurrentCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"current":[` + partyJSONWithCaptain("p9", 6, "friend1") + `]}`))
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	httpClient := transporthttp.NewClient(srv.Client(), nil, transporthttp.Config{MaxRetries: 0})
+	state := NewState()
+	cmd := NewCommands(state, httpClient, Config{BaseURL: srv.URL, AccountID: "acc1", DisplayName: "Bot"})
+
+	if err := cmd.JoinPartyByMemberID(context.Background(), "friend1"); err != nil {
+		t.Fatalf("join by member id: %v", err)
+	}
+
+	if joinedPath == "" {
+		t.Fatalf("expected join endpoint call")
+	}
+
+	if selfCurrentCalls == 0 {
+		t.Fatalf("expected self current-party hydrate call")
+	}
+
+	snapshot := state.Snapshot()
+	if snapshot == nil || snapshot.ID != "p9" {
+		t.Fatalf("expected party p9 after join hydrate")
+	}
+
+	if _, ok := snapshot.Members["acc1"]; !ok {
+		t.Fatalf("expected hydrated self member in snapshot")
+	}
+}
+
 func TestJoinPartyByMemberIDSelfOnlyQueryReturnsNotFound(t *testing.T) {
 	joinCalled := false
 
@@ -405,6 +465,74 @@ func TestSetReadyRetriesMemberStaleRevision(t *testing.T) {
 	member := snapshot.Members["acc1"]
 	if member.Ready != ReadyStateReady {
 		t.Fatalf("expected ready state Ready, got %s", member.Ready)
+	}
+}
+
+func TestSetReadyHydratesSelfMemberFromCurrentParty(t *testing.T) {
+	selfCurrentCalls := 0
+	memberPatchCalls := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/user/acc1") && r.Method == http.MethodGet {
+			selfCurrentCalls++
+			w.Header().Set("Content-Type", "application/json")
+			if selfCurrentCalls == 1 {
+				_, _ = w.Write([]byte(`{"current":[` + partyJSONFriendOnly("p1", 10, "friend1") + `]}`))
+				return
+			}
+
+			_, _ = w.Write([]byte(`{"current":[` + partyJSONWith(11, 6, "", "NotReady") + `]}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/parties/p1/members/acc1/meta") && r.Method == http.MethodPatch {
+			memberPatchCalls++
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/parties/p1") && r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(partyJSONWith(12, 7, "", "Ready")))
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	httpClient := transporthttp.NewClient(srv.Client(), nil, transporthttp.Config{
+		MaxRetries: 0,
+		MinBackoff: time.Millisecond,
+		MaxBackoff: time.Millisecond,
+	})
+
+	state := NewState()
+	cmd := NewCommands(state, httpClient, Config{
+		BaseURL:         srv.URL,
+		AccountID:       "acc1",
+		DisplayName:     "Bot",
+		Platform:        "WIN",
+		MaxPatchRetries: 1,
+		MinPatchBackoff: time.Millisecond,
+		MaxPatchBackoff: time.Millisecond,
+	})
+	cmd.sleep = func(time.Duration) {}
+
+	if err := cmd.SyncCurrentParty(context.Background()); err != nil {
+		t.Fatalf("sync current: %v", err)
+	}
+
+	if err := cmd.SetReady(context.Background(), ReadyStateReady); err != nil {
+		t.Fatalf("set ready after hydrate: %v", err)
+	}
+
+	if selfCurrentCalls < 2 {
+		t.Fatalf("expected self current-party call for hydrate, got %d", selfCurrentCalls)
+	}
+
+	if memberPatchCalls == 0 {
+		t.Fatalf("expected member patch call")
 	}
 }
 
@@ -719,6 +847,38 @@ func partyJSONWithCaptain(id string, revision int64, captainID string) string {
 				"account_id": "friend1",
 				"account_dn": "Friend",
 				"role":       roleFriend,
+				"joined_at":  joinedAt,
+				"revision":   3,
+				"meta": map[string]any{
+					"Default:LobbyState_j":            `{"LobbyState":{"gameReadiness":"NotReady"}}`,
+					"Default:AthenaCosmeticLoadout_j": `{"AthenaCosmeticLoadout":{"characterPrimaryAssetId":"AthenaCharacter:CID_B_001"}}`,
+				},
+			},
+		},
+	}
+
+	raw, _ := json.Marshal(payload)
+	return string(raw)
+}
+
+func partyJSONFriendOnly(id string, revision int64, captainID string) string {
+	joinedAt := time.Date(2026, 2, 9, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	role := "MEMBER"
+	if captainID == "friend1" {
+		role = "CAPTAIN"
+	}
+
+	payload := map[string]any{
+		"id":       id,
+		"revision": revision,
+		"meta": map[string]any{
+			"Default:RegionId_s": "EU",
+		},
+		"members": []map[string]any{
+			{
+				"account_id": "friend1",
+				"account_dn": "Friend",
+				"role":       role,
 				"joined_at":  joinedAt,
 				"revision":   3,
 				"meta": map[string]any{
