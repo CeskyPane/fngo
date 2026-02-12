@@ -364,6 +364,22 @@ func (c *Client) WaitFor(ctx context.Context, pred events.Predicate) (events.Eve
 	return c.bus.WaitFor(ctx, pred)
 }
 
+func (c *Client) SendXMPPRaw(ctx context.Context, raw string) error {
+	if c.xmppClient == nil {
+		return fmt.Errorf("xmpp client unavailable")
+	}
+
+	return c.xmppClient.SendRaw(ctx, raw)
+}
+
+func (c *Client) SendXMPPPing(ctx context.Context, id string) (string, error) {
+	if c.xmppClient == nil {
+		return "", fmt.Errorf("xmpp client unavailable")
+	}
+
+	return c.xmppClient.SendPing(ctx, id)
+}
+
 func (c *Client) PartySnapshot() *party.Party {
 	return c.partyState.Snapshot()
 }

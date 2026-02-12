@@ -239,6 +239,58 @@ func (c *fakeConn) Close() error {
 	return nil
 }
 
+type fakeRecordingConn struct {
+	readCh    chan []byte
+	writeCh   chan []byte
+	closeCh   chan struct{}
+	closeOnce sync.Once
+}
+
+func newFakeRecordingConn() *fakeRecordingConn {
+	return &fakeRecordingConn{
+		readCh:  make(chan []byte, 1),
+		writeCh: make(chan []byte, 8),
+		closeCh: make(chan struct{}),
+	}
+}
+
+func (c *fakeRecordingConn) ReadMessage() (int, []byte, error) {
+	select {
+	case <-c.closeCh:
+		return 0, nil, errors.New("closed")
+	case payload := <-c.readCh:
+		return websocket.TextMessage, payload, nil
+	}
+}
+
+func (c *fakeRecordingConn) WriteMessage(_ int, data []byte) error {
+	buf := make([]byte, len(data))
+	copy(buf, data)
+
+	select {
+	case <-c.closeCh:
+		return errors.New("closed")
+	case c.writeCh <- buf:
+		return nil
+	}
+}
+
+func (c *fakeRecordingConn) SetReadDeadline(_ time.Time) error {
+	return nil
+}
+
+func (c *fakeRecordingConn) SetWriteDeadline(_ time.Time) error {
+	return nil
+}
+
+func (c *fakeRecordingConn) Close() error {
+	c.closeOnce.Do(func() {
+		close(c.closeCh)
+	})
+
+	return nil
+}
+
 func TestClientReconnectsThenConnects(t *testing.T) {
 	bus := events.NewBus()
 	sub, err := bus.Subscribe(64)
@@ -290,6 +342,77 @@ func TestClientReconnectsThenConnects(t *testing.T) {
 
 	if err := c.Close(context.Background()); err != nil {
 		t.Fatalf("close: %v", err)
+	}
+}
+
+func TestClientSendPingWritesXMPPStanza(t *testing.T) {
+	bus := events.NewBus()
+	conn := newFakeRecordingConn()
+	dialer := &fakeDialer{conn: conn}
+
+	c := NewClient(Config{
+		Endpoint:          "wss://xmpp.example",
+		EnableHandshake:   false,
+		MinReconnectDelay: time.Millisecond,
+		MaxReconnectDelay: time.Millisecond,
+	}, bus, fakeTokenSource{token: "abc"}, nil, dialer)
+	c.sleep = func(time.Duration) {}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := c.Connect(ctx); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	if _, err := waitForEvent(bus, events.EventXMPPConnected, time.Second); err != nil {
+		t.Fatalf("wait connected: %v", err)
+	}
+
+	pingID, err := c.SendPing(context.Background(), "diag_ping_1")
+	if err != nil {
+		t.Fatalf("send ping: %v", err)
+	}
+
+	if pingID != "diag_ping_1" {
+		t.Fatalf("unexpected ping id: %s", pingID)
+	}
+
+	select {
+	case payload := <-conn.writeCh:
+		text := string(payload)
+		if !strings.Contains(text, "id='diag_ping_1'") {
+			t.Fatalf("ping stanza missing id: %s", text)
+		}
+
+		if !strings.Contains(text, "urn:xmpp:ping") {
+			t.Fatalf("ping stanza missing namespace: %s", text)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for ping stanza write")
+	}
+
+	if err := c.Close(context.Background()); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
+
+func TestBuildPingStanzaAutoID(t *testing.T) {
+	pingID, stanza := buildPingStanza("")
+	if pingID == "" {
+		t.Fatalf("expected generated ping id")
+	}
+
+	if !strings.Contains(stanza, "type='get'") {
+		t.Fatalf("expected iq get stanza: %s", stanza)
+	}
+
+	if !strings.Contains(stanza, "urn:xmpp:ping") {
+		t.Fatalf("expected ping namespace: %s", stanza)
+	}
+
+	if !strings.Contains(stanza, "id='"+pingID+"'") {
+		t.Fatalf("expected stanza id to match generated id: %s", stanza)
 	}
 }
 

@@ -155,6 +155,25 @@ func (c *Client) SendRaw(ctx context.Context, raw string) error {
 	}
 }
 
+func (c *Client) SendPing(ctx context.Context, id string) (string, error) {
+	pingID, stanza := buildPingStanza(id)
+	if err := c.SendRaw(ctx, stanza); err != nil {
+		return "", err
+	}
+
+	return pingID, nil
+}
+
+func buildPingStanza(id string) (string, string) {
+	pingID := id
+	if pingID == "" {
+		pingID = fmt.Sprintf("ping_%d", time.Now().UTC().UnixNano())
+	}
+
+	raw := "<iq type='get' id='" + xmlEscape(pingID) + "'><ping xmlns='urn:xmpp:ping'/></iq>"
+	return pingID, raw
+}
+
 func (c *Client) supervisor(ctx context.Context) {
 	defer c.wg.Done()
 	defer c.markStopped()
